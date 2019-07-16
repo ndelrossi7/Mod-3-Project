@@ -3,6 +3,14 @@ from api import API
 import time
 from itertools import chain
 import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+import scipy.stats as stats
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+import seaborn as sns
+from matplotlib import pyplot as plt
+from statsmodels.stats.power import TTestIndPower, TTestPower
 
 # Importing necessary packages
 
@@ -169,3 +177,75 @@ genre_info = pd.read_sql('SELECT * FROM genre_info', conn)
 genre_info.drop(['index'], axis = 1, inplace = True)
 
 genre_merged = pd.merge(top_rated_df, genre_info, on = 'id')
+# Merging to access budget info
+genre_merged = pd.merge(genres, genre_merged, left_on = 'id', right_on = 'genre_id')
+# Merging to have the genre names for better visualization
+genre_merged = genre_merged.groupby('genre_id').filter(lambda x : len(x)>= 10)
+# Selected genres that had 10 or more movies associated with it
+genre_merged.drop(['index', 'id_x'], axis = 1, inplace = True)
+
+remakes = pd.read_csv('remakes.csv')
+# The data from this CSV came from webscraping by Greg of this article: https://www.usatoday.com/picture-gallery/life/entertainthis/2018/05/05/best-and-worst-movie-remakes-of-all-time/34498459/
+                              
+remakes.drop('Unnamed: 0', axis = 1, inplace = True)
+remakes.drop_duplicates(inplace = True)
+
+# Making API calls based on the titles to get movie info                              
+remake_search = []
+for remake in remake_list:
+    response = requests.get('https://api.themoviedb.org/3/search/movie?api_key={}&language=en-US&query={}&page=1&include_adult=false'.format(API, remake))
+    time.sleep(2)
+    if response.status_code == 200:
+        remake_search.append(response.json()['results'])
+    else: 
+        print('unauthorized')
+# Cleaning the returned data for easier work
+remake_unlist = list(chain.from_iterable(remake_search))
+remake_df = pd.DataFrame.from_records(remake_unlist)
+remake_df = remake_df[['id', 'title', 'release_date', 'vote_average', 'vote_count']]
+remake_df = remake_df[remake_df['vote_count'] >= 50]
+remake_df.reset_index(inplace = True)
+remake_df.drop('index', axis = 1, inplace = True)
+remake_df.drop_duplicates(inplace = True)
+rm_df = pd.DataFrame(remake_list)
+rm_df.columns = ['title']
+# merging on the original list of titles to pare down the results
+merged_remake = pd.merge(remake_df, rm_df, on = 'title')
+
+# The following is a list of IDs for movies that either did not make the cut when it came to enough votes or did not have a pair
+                              
+to_drop = [42884, 10772, 2020, 8198, 13188, 17979, 16716, 13189, 428081, 197796, 648, 1553, 16559, 43828, 6844, 63, 11673, 5528, 17809, 38985, 3111, 19610, 10445, 11113, 6404, 60935, 10714, 13528, 949, 58857, 34148, 1422, 4481, 8970, 36355, 13972, 25137, 97434, 87567, 5689, 10067, 13184, 46717, 14347, 24070, 263472, 929, 10484, 11045, 18681, 28696]
+ 
+merged_remake = merged_remake[~merged_remake.id.isin(to_drop)]
+# Removing any movies that are in the drop list
+
+identifiers = []
+for num in list(range(1, 56)):
+    identifiers.append([num]*2)
+
+identifiers = list(chain.from_iterable(identifiers))
+                              
+# Because our remakes are not all the same name and they are not all ordered based on release date, I am assigning them identifiers so that we can group by the identifier and then release date for easier subsetting. 
+merged_remake['identifiers'] = identifiers
+                              
+merged_remake = merged_remake.sort_values(by=['identifiers', 'release_date'])
+merged_remake.reset_index(inplace = True)
+merged_remake.drop('index', axis = 1, inplace = True)
+                              
+original = merged_remake.loc[::2]
+new_remake = merged_remake.loc[1::2]
+# Our 2 new dataframes for our paired sample t-test                          
+                              
+                              ##############################STATS BELOW###########################
+                              
+# Running the Shapiro Wilkes test to assess normality - sample size is large enough that we do not have to worry too much about this
+stats.shapiro(genre_merged['vote_average'])
+# ANOVA table (one-way)
+formula = 'vote_average ~ C(genre)'
+lm = ols(formula, genre_merged).fit()
+table = sm.stats.anova_lm(lm, typ=2)
+# print(table)
+m_comp = pairwise_tukeyhsd(endog=genre_merged['vote_average'], groups=genre_merged['genre'], alpha=0.05)
+tukey = pd.DataFrame(data=m_comp._results_table.data[1:], columns=m_comp._results_table.data[0])
+tukey[tukey['reject'] == 1]
+# Running tukey tests and visualizing the ones that reject the null hypothesis
