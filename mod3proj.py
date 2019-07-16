@@ -115,7 +115,7 @@ df_merged = pd.merge(top_rated_df, budgets_df, on = 'id')
 # merging our rating and popularity data with budget data
 
 
-genre_response = requests.get(https://api.themoviedb.org/3/genre/movie/list?api_key={}&language=en-US'.format(API))
+genre_response = requests.get('https://api.themoviedb.org/3/genre/movie/list?api_key={}&language=en-US'.format(API))
 genres = response.json()['genres']
 genres_df = pd.DataFrame.from_records(genres)
 c.execute("""CREATE TABLE IF NOT EXISTS genres
@@ -234,10 +234,32 @@ merged_remake.drop('index', axis = 1, inplace = True)
                               
 original = merged_remake.loc[::2]
 new_remake = merged_remake.loc[1::2]
+
+to_plot = pd.concat([original, new_remake], axis = 0)
+
 # Our 2 new dataframes for our paired sample t-test                          
                               
                               ##############################STATS BELOW###########################
-                              
+
+# regression plot to visualize correlation for first hypothesis     
+plt.figure(figsize=(15, 10))
+sns.regplot(x = df_merged.vote_average, y = df_merged.budget_c, data = df_merged)
+plt.title('Relationship Between Budget and Average Vote Score')
+plt.xlabel('Average Vote Score')
+pblt.ylabel('Budget')
+
+# Pearson's R
+stats.pearsonr(df_merged.vote_average, df_merged.budget_c)
+            
+#Second hypothesis
+#visualization of genre breakdown
+pie = genre_merged.groupby('genre').size()
+params.update({'font.size': 15})
+pie.plot(kind='pie', subplots=True, figsize=(8, 8))
+plt.title("Genres")
+plt.ylabel("")
+plt.show()
+    
 # Running the Shapiro Wilkes test to assess normality - sample size is large enough that we do not have to worry too much about this
 stats.shapiro(genre_merged['vote_average'])
 # ANOVA table (one-way)
@@ -249,3 +271,27 @@ m_comp = pairwise_tukeyhsd(endog=genre_merged['vote_average'], groups=genre_merg
 tukey = pd.DataFrame(data=m_comp._results_table.data[1:], columns=m_comp._results_table.data[0])
 tukey[tukey['reject'] == 1]
 # Running tukey tests and visualizing the ones that reject the null hypothesis
+
+# Visualization of genres
+plt.figure(figsize=(30, 20))
+params.update({'font.size': 22})
+sns.boxplot(x = genre_merged['genre'], y = genre_merged['vote_average'])
+plt.title('Average Vote Score for Movies Based on Their Main Theme')
+plt.xlabel('Genre')
+plt.ylabel('Average Vote Score')
+
+# Third hypothesis - checking distribution for our 2 groups (original and remake)
+
+sns.distplot(original.vote_average)
+sns.distplot(new_remake.vote_average)
+
+# Paired samples t test
+stats.ttest_rel(original.vote_average, new_remake.vote_average)
+
+# Visualization
+
+plt.figure(figsize=(15, 10))
+sns.boxplot(x = to_plot['type'], y = to_plot['vote_average'], palette="Blues")
+plt.title('Average Vote Score for Original Movies and Their Remakes')
+plt.xlabel('Type of Movie')
+plt.ylabel('Average Vote Score')
